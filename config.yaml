@@ -1,2 +1,5 @@
 cube pose: [100, 200, 0]
-config: "wowgybwyogygybyoggrowbrgywrborwggybrbwororbwborgowryby"
+config: "wowgybwyogygybyoggrowbrgywrbodawdwrwggybrbwororbwborgowryby"
+L: 0.07
+crop grid: [200,100,400,300]
+
