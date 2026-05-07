@@ -3,6 +3,7 @@ from os.path import isfile
 import utils
 import numpy as np
 from rubik_solver import utils as rubik_utils
+<<<<<<< HEAD
 
 state = "start"
 
@@ -24,6 +25,34 @@ if state == "start":
 
 if state == "locate":
     print("The cube is being located.")
+=======
+import yaml
+
+# initial state
+state = "start" 
+
+
+if state == "start":
+    
+    print("1) System initialization")
+
+    # Check if the system is calibrated
+    if isfile("calibration.yaml"):
+
+        print("The system is calibrated.")
+        print("Starting the simulation with CoppeliaSim.")
+        state = "locate"
+
+    else:
+        print("The system is not calibrated. Please calibrate the system before proceeding.")
+        
+
+
+if state == "locate":
+
+    print("2) I'm localizing the cube...")
+    
+>>>>>>> 728f3cb (aggiunti file yaml)
     cubePose = None
 
     # Read the image topic from the simulated camera
@@ -31,6 +60,7 @@ if state == "locate":
 
     while cubePose is None:
         img = 0 # get the topic from camera
+<<<<<<< HEAD
 
         cubePose = utils.locate_cube(img)
 
@@ -49,10 +79,35 @@ if state == "pick":
     targetPose = [0, 0, 0] # Placeholder for the target pose
 
     if np.linalg.norm(np.array(robotPose) - np.array(targetPose)) < 0.01:
+=======
+        cubePose = utils.locate_cube(img)
+
+    print(f"Cube located at: {cubePose}")
+
+    state = "pick"
+
+
+
+if state == "pick":
+
+    print("3) I'm picking the cube and i'm moving it to the target position...")
+    # Move the left robotic arm to the cube's location and pick it up
+    # Move the cube in the target position.
+
+    if isfile("robot_config.json"):
+        with open("robot_config.json", "r") as f:
+            data_yaml = yaml.safe_load(f)
+            robotPose = tuple(data_yaml['robot pose'])
+            targetPose = tuple(data_yaml['target pose'])
+
+    if np.linalg.norm(np.array(robotPose) - np.array(targetPose)) < 0.01:
+        
+>>>>>>> 728f3cb (aggiunti file yaml)
         print("Cube is in the target position.")
         state = "scan"
 
 
+<<<<<<< HEAD
 if state == "scan":
     print("The cube is being scanned.")
 
@@ -94,6 +149,54 @@ if state == "execute":
 
 if state == "check":
     print("Checking if the cube is solved.")
+=======
+
+if state == "scan":
+
+    print("4) Scanning the cube...")
+
+    # Rotate the cube and scan it with the camera to determine its configuration
+
+    cubeConfig = utils.scan_cube(img)
+
+    if cubeConfig is not None:
+
+        print(f"Cube configuration: {cubeConfig}")
+        state = "solve"
+
+
+
+if state == "solve":
+
+    print("5) Computing the set of moves to solve the cube...")
+
+    # Use a solving algorithm to determine the sequence of moves required to solve the cube
+    # Execute the sequence of moves with the robotic arm to solve the cube
+    try:
+        moves = rubik_utils.solve(cubeConfig, 'Beginner')
+        print(f"Cube solved: {moves}")
+        state = "execute"
+    except Exception as e:
+        print("Errore")
+
+
+
+if state == "execute":
+
+    print("6) Executing the moves...")
+
+    for move in moves:
+        print(f"Executing move: {move}")
+
+    print("Cube solved successfully.")
+    state = "check"     
+
+
+
+if state == "check":
+
+    print("7) Checking that the cube is solved...")
+>>>>>>> 728f3cb (aggiunti file yaml)
 
     # Check if the cube is solved by scanning it again and comparing the configuration to the solved state
 
@@ -107,8 +210,15 @@ if state == "check":
     state = "drop"
 
 
+<<<<<<< HEAD
 if state == "drop":
     print("Dropping the cube.")
+=======
+
+if state == "drop":
+
+    print("8) Dropping the cube....")
+>>>>>>> 728f3cb (aggiunti file yaml)
 
     # Move the robotic arm to the drop location and release the cube
 
@@ -117,3 +227,36 @@ if state == "drop":
     state = "locate"
     
     # Careful, decide how to stop not to enter an infinite loop.
+<<<<<<< HEAD
+=======
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+   
+
+
+
+
+
+
+    
+
+
+
+
+
+
+
+
+>>>>>>> 728f3cb (aggiunti file yaml)
