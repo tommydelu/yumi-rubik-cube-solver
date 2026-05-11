@@ -67,7 +67,7 @@ def get_grasping_pose(cube_pose:np.ndarray, L:float) -> np.ndarray:
 
     y = cube_pose[1]
 
-    z = cube_pose[2]
+    z = cube_pose[2] # z may not be the same of the cube
 
     theta = cube_pose[3]
 
@@ -78,3 +78,32 @@ def get_grasping_pose(cube_pose:np.ndarray, L:float) -> np.ndarray:
     y_r = y - (L/2 + delta)*math.sin(theta)
 
     return np.array([x_r, y_r, z, theta, 0, 0])
+
+class Robot : 
+    def __init__(self, pose:np.ndarray, target_pose:np.ndarray, picking_arm:bool):
+        
+        self.pose = pose
+
+        self.target_pose = target_pose
+        
+        self.picking_arm = picking_arm
+
+        self.curr_hold = picking_arm
+
+    def swap_hold(self) :
+        
+        
+
+    def move_front() :
+        
+
+
+    def move_back() :
+
+    def move_top() :
+
+    def move_bottom() :
+
+    def move_left() :
+
+    def move_right() :
