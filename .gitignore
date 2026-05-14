@@ -1,4 +1,10 @@
+
 rvai/
 
 .bag
+<<<<<<< HEAD
 .vscode
+=======
+.venv
+__pycache__
+>>>>>>> a0c35dafaae66c2169bbcb789edbe246a2e687f7
