@@ -3,36 +3,36 @@
 ## GENERAL PROCESS
 - The purpose of this python script is to detect the colors of each face of the Rubik's cube, so that the robot can decide what the sequence of moves is going to be to solve it.
 
-- We import as an image(e.g. .jpeg) all the faces of the cube. On the photo we create a 3x3 grid to detect all the 9 stickers of the cube.
+- We import as an image(e.g. ***.jpeg***) all the faces of the cube. On the photo we create a 3x3 grid to detect all the 9 stickers of the cube.
 
-- We use an HSV range to detect each color of the cube
+- We process those images to extract and analyze color data. We crop the center of an image, divide it into a 3x3 grid, and sample the median color of each cell. The color values are converted to the CIELAB color space (ideal for robust color recognition under varying lighting conditions) and plotted into a 3D scatter plot using their actual RGB colors.
 
 ## CUBES ROTATIONS & SCANNING PROCESS
 
 The robot reads each face of the cube, starting by picking the cube with its left hand. 
-We scan the first three faces of the cube with the left hand, and then we continue the process with the right hand. 
+We scan the first three faces of the cube with the right hand, and then we continue the process with the left hand. 
 
-1. LEFT HAND SEQUENCE 
+1. RIGHT HAND SEQUENCE 
 - The process begins with the **Front face**.
-- The gripper of the robot is rotated 90° to the left so it can read the **right face**. 
+- The gripper of the robot is rotated 90° to the right so it can read the **left face**. 
 - For the **back face** we have to bring the hand back to its initial position (90° to the right and rotate the cube 180°).
 
-2. RIGHT HAND SEQUENCE
-- The right hand takes control to scan the remaining faces.
-- With the right hand we pick the cube, and we rotate it 90° to scan the **left face**
-- Next a 90° rotation is made to the left to scan the **top face**
+2. LEFT HAND SEQUENCE
+- The left hand takes control to scan the remaining faces.
+- With the left hand we pick the cube, and we rotate it 90° to scan the **top face**
+- Next a 90° rotation is made to the left to scan the **right face**
 - Finally, we flip the cube by 180° to scan the **bottom face**.
 
 The diagram below is how we see the cube when we unwrap it, following the sequence of the motions that we are using.
 
 ```
-      +-------+
-      |  TOP  |
-+-----+-------+-----+-----+
-|FRONT| RIGHT |BACK | LEFT|
-+-----+-------+-----+-----+
-      | BOTTOM|
-      +-------+
+       +-------+
+       | FRONT |
++------+-------+-------+------+
+| LEFT |  UP   | RIGHT | DOWN |
++------+-------+-------+------+
+       | BACK  |
+       +-------+
 ```
 
 ### NOTE 
