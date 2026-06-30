@@ -1,0 +1,23 @@
+# Cartelle di compilazione ROS2 (vanno generate dentro il container)
+build/
+install/
+log/
+
+# Git
+.git/
+.gitignore
+
+# Python temporanei
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Documentazione e IDE
+.vscode/
+.idea/
+*.md
+
+# File di sistema
+.DS_Store
+thumbs.db
