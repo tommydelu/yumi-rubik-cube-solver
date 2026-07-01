@@ -319,7 +319,8 @@ PrimitiveStatus primitive_0(
 {
     static int phase = 0;
     static PrimitiveJointSnapshot initial_joints;
-    return execute_handoff_rotation_primitive(
+
+    const auto status = execute_handoff_rotation_primitive(
         0,
         PrimitiveArm::LEFT,
         PrimitiveArm::RIGHT,
@@ -329,6 +330,12 @@ PrimitiveStatus primitive_0(
         current_pose,
         logger,
         context);
+
+    if (status == PrimitiveStatus::COMPLETED && context.send_rubik_key) {
+        context.send_rubik_key("f f f");
+    }
+
+    return status;
 }
 
 PrimitiveStatus primitive_1(
@@ -338,7 +345,8 @@ PrimitiveStatus primitive_1(
 {
     static int phase = 0;
     static PrimitiveJointSnapshot initial_joints;
-    return execute_handoff_rotation_primitive(
+
+    const auto status = execute_handoff_rotation_primitive(
         1,
         PrimitiveArm::LEFT,
         PrimitiveArm::RIGHT,
@@ -348,6 +356,12 @@ PrimitiveStatus primitive_1(
         current_pose,
         logger,
         context);
+
+    if (status == PrimitiveStatus::COMPLETED && context.send_rubik_key) {
+        context.send_rubik_key("f");
+    }
+
+    return status;
 }
 
 PrimitiveStatus primitive_2(
@@ -357,7 +371,8 @@ PrimitiveStatus primitive_2(
 {
     static int phase = 0;
     static PrimitiveJointSnapshot initial_joints;
-    return execute_handoff_rotation_primitive(
+
+    const auto status = execute_handoff_rotation_primitive(
         2,
         PrimitiveArm::RIGHT,
         PrimitiveArm::LEFT,
@@ -367,6 +382,14 @@ PrimitiveStatus primitive_2(
         current_pose,
         logger,
         context);
+
+    if (status == PrimitiveStatus::COMPLETED && context.send_rubik_key) {
+        context.send_rubik_key("b b b");
+    }
+
+    return status;
+
+        
 }
 
 PrimitiveStatus primitive_3(
@@ -376,7 +399,8 @@ PrimitiveStatus primitive_3(
 {
     static int phase = 0;
     static PrimitiveJointSnapshot initial_joints;
-    return execute_handoff_rotation_primitive(
+
+    const auto status = execute_handoff_rotation_primitive(
         3,
         PrimitiveArm::RIGHT,
         PrimitiveArm::LEFT,
@@ -386,6 +410,12 @@ PrimitiveStatus primitive_3(
         current_pose,
         logger,
         context);
+
+    if (status == PrimitiveStatus::COMPLETED && context.send_rubik_key) {
+        context.send_rubik_key("b");
+    }
+
+    return status;
 }
 
 PrimitiveStatus primitive_4(
@@ -395,7 +425,8 @@ PrimitiveStatus primitive_4(
 {
     static int phase = 0;
     static PrimitiveJointSnapshot initial_joints;
-    return execute_handoff_rotation_primitive(
+
+    const auto status = execute_handoff_rotation_primitive(
         4,
         PrimitiveArm::LEFT,
         PrimitiveArm::RIGHT,
@@ -405,6 +436,14 @@ PrimitiveStatus primitive_4(
         current_pose,
         logger,
         context);
+
+
+    if (status == PrimitiveStatus::COMPLETED && context.send_rubik_key) {
+        context.send_rubik_key("f f");
+    }
+
+    return status;
+    
 }
 
 PrimitiveStatus primitive_5(
@@ -414,7 +453,8 @@ PrimitiveStatus primitive_5(
 {
     static int phase = 0;
     static PrimitiveJointSnapshot initial_joints;
-    return execute_handoff_rotation_primitive(
+
+    const auto status = execute_handoff_rotation_primitive(
         5,
         PrimitiveArm::RIGHT,
         PrimitiveArm::LEFT,
@@ -424,6 +464,13 @@ PrimitiveStatus primitive_5(
         current_pose,
         logger,
         context);
+
+
+    if (status == PrimitiveStatus::COMPLETED && context.send_rubik_key) {
+        context.send_rubik_key("b b");
+    }
+
+    return status;
 }
 
 PrimitiveStatus primitive_6(
@@ -498,6 +545,7 @@ PrimitiveStatus primitive_6(
 
         case 3:
             ++phase;
+            context.send_rubik_key("u u u");
             return_arm_to_initial_joints(6, PrimitiveArm::RIGHT, initial_joints, 2, logger, context);
             return PrimitiveStatus::RUNNING;
 
@@ -673,6 +721,7 @@ PrimitiveStatus primitive_7(
 
         case 4:
             ++phase;
+            context.send_rubik_key("u");
             return_arm_to_initial_joints(6, PrimitiveArm::LEFT, initial_joints, 1, logger, context);
             return PrimitiveStatus::RUNNING;
 
@@ -691,7 +740,8 @@ PrimitiveStatus primitive_8(
 {
     static int phase = 0;
     static PrimitiveJointSnapshot initial_joints;
-    return execute_right_reference_frame_rotation_primitive(
+
+    const auto status = execute_right_reference_frame_rotation_primitive(
         8,
         0.058,
         M_PI_2 - 0.01,
@@ -701,6 +751,13 @@ PrimitiveStatus primitive_8(
         current_pose,
         logger,
         context);
+
+
+    if (status == PrimitiveStatus::COMPLETED && context.send_rubik_key) {
+        context.send_rubik_key("d d d");
+    }
+
+    return status;
 }
 
 PrimitiveStatus primitive_9(
@@ -708,18 +765,27 @@ PrimitiveStatus primitive_9(
     const rclcpp::Logger & logger,
     const PrimitiveContext & context)
 {
+    
     static int phase = 0;
     static PrimitiveJointSnapshot initial_joints;
-    return execute_right_reference_frame_rotation_primitive(
+
+    const auto status = execute_right_reference_frame_rotation_primitive(
         9,
         0.058,
-        M_PI_2 - 0.01,
+        -M_PI_2,
         true,
         phase,
         initial_joints,
         current_pose,
         logger,
         context);
+
+
+    if (status == PrimitiveStatus::COMPLETED && context.send_rubik_key) {
+        context.send_rubik_key("d");
+    }
+
+    return status;
 }
 
 PrimitiveStatus primitive_10(
@@ -810,6 +876,7 @@ PrimitiveStatus primitive_10(
 
         case 4:
             ++phase;
+            context.send_rubik_key("l l l");
             return_arm_to_initial_joints(10, PrimitiveArm::LEFT, initial_joints, 2, logger, context);
             return PrimitiveStatus::RUNNING;
 
@@ -908,6 +975,7 @@ PrimitiveStatus primitive_11(
 
         case 3:
             ++phase;
+            context.send_rubik_key("r r r");
             return_arm_to_initial_joints(11, PrimitiveArm::LEFT, initial_joints, 2, logger, context);
             return PrimitiveStatus::RUNNING;
 
@@ -1014,6 +1082,7 @@ PrimitiveStatus primitive_12(
 
         case 4:
             ++phase;
+            context.send_rubik_key("l");
             return_arm_to_initial_joints(12, PrimitiveArm::LEFT, initial_joints, 2, logger, context);
             return PrimitiveStatus::RUNNING;
 
@@ -1112,6 +1181,7 @@ PrimitiveStatus primitive_13(
 
         case 3:
             ++phase;
+            context.send_rubik_key("r");
             return_arm_to_initial_joints(13, PrimitiveArm::LEFT, initial_joints, 2, logger, context);
             return PrimitiveStatus::RUNNING;
 

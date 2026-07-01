@@ -1,22 +1,31 @@
 #include <algorithm>
 #include <chrono>
+#include <cctype>
+#include <cstdint>
+#include <cerrno>
+#include <fstream>
+#include <iomanip>
 #include <cmath>
 #include <functional>
 #include <memory>
 #include <queue>
+#include <sstream>
 #include <string>
 #include <vector>
 
 #include <fcntl.h>
+#include <sys/stat.h>
 #include <sys/select.h>
 #include <termios.h>
 #include <unistd.h>
 
 #include "geometry_msgs/msg/pose.hpp"
+#include "sensor_msgs/msg/image.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "std_msgs/msg/bool.hpp"
 #include "std_msgs/msg/int32.hpp"
+#include "std_msgs/msg/string.hpp"
 #include "std_msgs/msg/float64.hpp"
 #include "yumi_cube/primitives.hpp"
 
@@ -76,6 +85,12 @@ public:
         current_joint_state_left_sub_ = create_subscription<sensor_msgs::msg::JointState>(
             "/yumi/left/current_joint_state", 10,
             std::bind(&CubeTrajectoryPublisher::currentJointStateLeftCallback, this, _1));
+        vision_image_sub_ = create_subscription<sensor_msgs::msg::Image>(
+            "/yumi/vision", rclcpp::SensorDataQoS(),
+            std::bind(&CubeTrajectoryPublisher::visionImageCallback, this, _1));
+        vision_sensor_image_sub_ = create_subscription<sensor_msgs::msg::Image>(
+            "/yumi/vision_sensor", rclcpp::SensorDataQoS(),
+            std::bind(&CubeTrajectoryPublisher::visionImageCallback, this, _1));
         cube_pose_sub_ = create_subscription<geometry_msgs::msg::Pose>(
             "/cube_pose", 10,
             std::bind(&CubeTrajectoryPublisher::cubePoseCallback, this, _1));
@@ -94,6 +109,7 @@ public:
         joint7_delta_left_pub_ = create_publisher<std_msgs::msg::Float64>("/yumi/left/joint7_delta", 10);
         gripper_cmd_right_pub_ = create_publisher<std_msgs::msg::Bool>("/yumi/right/gripper_cmd", 10);
         gripper_cmd_left_pub_ = create_publisher<std_msgs::msg::Bool>("/yumi/left/gripper_cmd", 10);
+        rubik_key_pub_ = create_publisher<std_msgs::msg::String>("/cube_cmd", 10);
 
         gripper_wait_until_ = now();
         timer_ = create_wall_timer(20ms, std::bind(&CubeTrajectoryPublisher::fsm_loop, this));
@@ -137,6 +153,13 @@ private:
     {
         current_joints_left_ = msg->position;
         has_received_left_joints_ = current_joints_left_.size() >= 7;
+    }
+
+    void visionImageCallback(const sensor_msgs::msg::Image::SharedPtr msg)
+    {
+        latest_vision_image_ = *msg;
+        has_received_vision_image_ = true;
+        ++vision_image_counter_;
     }
 
     void cubePoseCallback(const geometry_msgs::msg::Pose::SharedPtr msg)
@@ -331,7 +354,35 @@ private:
             current_pose_ = pose_for_arm(active_arm_);
             desired_pose_ = desired_pose_for_arm(active_arm_);
         };
+        context.send_rubik_key = [this](const std::string & keys) {
+            send_rubik_key(keys);
+        };
         return context;
+    }
+
+    void send_rubik_key(const std::string & keys)
+    {
+        for (const char key : keys) {
+            if (std::isspace(static_cast<unsigned char>(key)) || key == ',') {
+                continue;
+            }
+
+            std_msgs::msg::String msg;
+            switch (std::tolower(static_cast<unsigned char>(key))) {
+                case 'u': msg.data = "2,1,90"; break;
+                case 'd': msg.data = "2,-1,-90"; break;
+                case 'r': msg.data = "1,1,90"; break;
+                case 'l': msg.data = "1,-1,-90"; break;
+                case 'f': msg.data = "3,1,90"; break;
+                case 'b': msg.data = "3,-1,-90"; break;
+                default:
+                    RCLCPP_WARN(get_logger(), "Ignoring unsupported Rubik keyboard command '%c'", key);
+                    continue;
+            }
+
+            rubik_key_pub_->publish(msg);
+            RCLCPP_INFO(get_logger(), "Published Rubik command '%s' for key '%c'", msg.data.c_str(), key);
+        }
     }
 
     void get_cube_pose()
@@ -394,6 +445,7 @@ private:
                     RCLCPP_INFO_THROTTLE(
                         get_logger(), *get_clock(), 1000,
                         "Waiting for /get_cube_pose before capturing cube pose.");
+                        ++get_cube_pose_phase_;
                     return;
                 }else {
                     // print values
@@ -504,7 +556,6 @@ private:
     void cube_scan()
     {
         const auto hold_position = hold_path(current_pose_.position);
-        auto near = hold_position;
 
         switch (scan_phase_) {
             case 0: {
@@ -513,6 +564,10 @@ private:
                         get_logger(), *get_clock(), 1000,
                         "Scanning cube waiting for %s arm joint state before joint 7 rotation.",
                         arm_name(active_arm_));
+                    return;
+                }
+
+                if (!capture_scan_photo_after_new_frame("right_start")) {
                     return;
                 }
 
@@ -537,6 +592,10 @@ private:
             }
 
             case 1:
+                if (!capture_scan_photo_after_new_frame("right_after_joint7_pi")) {
+                    return;
+                }
+
                 if (scan_start_joints_.size() < 7) {
                     RCLCPP_WARN(get_logger(), "Scanning cube cannot restore joint scan: missing initial joint snapshot.");
                     scan_phase_ = 0;
@@ -560,6 +619,10 @@ private:
             }
 
             case 3:
+                if (!capture_scan_photo_after_new_frame("right_after_manual_joint_config")) {
+                    return;
+                }
+
                 if (scan_start_joints_.size() < 7) {
                     RCLCPP_WARN(get_logger(), "Scanning cube cannot restore joint scan: missing initial joint snapshot.");
                     scan_phase_ = 0;
@@ -602,11 +665,19 @@ private:
                 break;
 
             case 6:
+                if (!capture_scan_photo_after_new_frame("left_after_yaw_pi_2")) {
+                    return;
+                }
+
                 ++scan_phase_;
                 start_path(hold_position, local_rotated_orientation(0.0, 0.0, -M_PI), FSMState::CUBE_SCANNING);
                 break;
 
             case 7: {
+                if (!capture_scan_photo_after_new_frame("left_after_yaw_minus_pi")) {
+                    return;
+                }
+
                 std::vector<double> target_joints = {
                     -1.263, -0.916, 0.551, 1.061, -3.254, -1.174, -1.826
                 };
@@ -618,6 +689,10 @@ private:
             }
 
             case 8:
+                if (!capture_scan_photo_after_new_frame("left_after_scan_joint_config")) {
+                    return;
+                }
+
                 if (scan_start_joints_.size() < 7) {
                     RCLCPP_WARN(get_logger(), "Scanning cube cannot restore left-arm scan: missing initial joint snapshot.");
                     scan_phase_ = 0;
@@ -635,6 +710,119 @@ private:
                 start_change_arm(FSMState::CHECK_SCAN);
                 break;
         }
+    }
+
+    bool capture_scan_photo(const std::string & label)
+    {
+        if (!has_received_vision_image_) {
+            RCLCPP_WARN(get_logger(), "Cannot save scan photo '%s': no image received yet on /yumi/vision or /yumi/vision_sensor.", label.c_str());
+            return false;
+        }
+
+        const std::string directory = "src/yumi_cube/scan_images";
+        if (mkdir(directory.c_str(), 0755) != 0 && errno != EEXIST) {
+            RCLCPP_WARN(get_logger(), "Cannot create scan image directory '%s'.", directory.c_str());
+            return false;
+        }
+
+        const auto & image = latest_vision_image_;
+        if (image.width == 0 || image.height == 0 || image.data.empty()) {
+            RCLCPP_WARN(get_logger(), "Cannot save scan photo '%s': latest image is empty.", label.c_str());
+            return false;
+        }
+
+        const bool mono = image.encoding == "mono8" || image.encoding == "8UC1";
+        const bool rgb = image.encoding == "rgb8" || image.encoding == "bgr8" ||
+            image.encoding == "rgba8" || image.encoding == "bgra8";
+        if (!mono && !rgb) {
+            RCLCPP_WARN(
+                get_logger(),
+                "Cannot save scan photo '%s': unsupported image encoding '%s'.",
+                label.c_str(),
+                image.encoding.c_str());
+            return false;
+        }
+
+        const std::string extension = mono ? ".pgm" : ".ppm";
+        std::ostringstream name;
+        name << directory << "/scan_" << std::setw(2) << std::setfill('0')
+             << scan_photo_counter_++ << "_phase_" << scan_phase_ << "_" << label << extension;
+
+        std::ofstream out(name.str(), std::ios::binary);
+        if (!out) {
+            RCLCPP_WARN(get_logger(), "Cannot open scan photo file '%s'.", name.str().c_str());
+            return false;
+        }
+
+        if (mono) {
+            const size_t step = image.step != 0 ? image.step : image.width;
+            out << "P5\n" << image.width << " " << image.height << "\n255\n";
+            for (uint32_t y = 0; y < image.height; ++y) {
+                const size_t offset = y * step;
+                if (offset + image.width > image.data.size()) {
+                    RCLCPP_WARN(get_logger(), "Cannot save scan photo '%s': image buffer is truncated.", label.c_str());
+                    return false;
+                }
+                out.write(reinterpret_cast<const char *>(image.data.data() + offset), image.width);
+            }
+        } else {
+            const size_t channels = (image.encoding == "rgba8" || image.encoding == "bgra8") ? 4 : 3;
+            const size_t step = image.step != 0 ? image.step : image.width * channels;
+            const bool bgr_order = image.encoding == "bgr8" || image.encoding == "bgra8";
+            out << "P6\n" << image.width << " " << image.height << "\n255\n";
+            for (uint32_t y = 0; y < image.height; ++y) {
+                const size_t row = y * step;
+                if (row + image.width * channels > image.data.size()) {
+                    RCLCPP_WARN(get_logger(), "Cannot save scan photo '%s': image buffer is truncated.", label.c_str());
+                    return false;
+                }
+                for (uint32_t x = 0; x < image.width; ++x) {
+                    const size_t pixel = row + x * channels;
+                    const char rgb_pixel[3] = {
+                        static_cast<char>(image.data[pixel + (bgr_order ? 2 : 0)]),
+                        static_cast<char>(image.data[pixel + 1]),
+                        static_cast<char>(image.data[pixel + (bgr_order ? 0 : 2)])
+                    };
+                    out.write(rgb_pixel, 3);
+                }
+            }
+        }
+
+        RCLCPP_INFO(get_logger(), "Saved scan photo '%s'.", name.str().c_str());
+        return true;
+    }
+
+    bool capture_scan_photo_after_new_frame(const std::string & label)
+    {
+        if (!has_received_vision_image_) {
+            RCLCPP_WARN_THROTTLE(
+                get_logger(), *get_clock(), 1000,
+                "Waiting for a vision image before saving scan photo '%s'.",
+                label.c_str());
+            return false;
+        }
+
+        if (pending_scan_photo_label_ != label) {
+            pending_scan_photo_label_ = label;
+            pending_scan_photo_image_counter_ = vision_image_counter_;
+            RCLCPP_INFO(get_logger(), "Waiting for fresh vision frame for scan photo '%s'.", label.c_str());
+            return false;
+        }
+
+        if (vision_image_counter_ == pending_scan_photo_image_counter_) {
+            RCLCPP_INFO_THROTTLE(
+                get_logger(), *get_clock(), 1000,
+                "Waiting for fresh vision frame for scan photo '%s'.",
+                label.c_str());
+            return false;
+        }
+
+        if (!capture_scan_photo(label)) {
+            return false;
+        }
+
+        pending_scan_photo_label_.clear();
+        return true;
     }
 
     void manual_joint_scan_control()
@@ -1661,6 +1849,8 @@ private:
     rclcpp::Subscription<geometry_msgs::msg::Pose>::SharedPtr get_cube_pose_sub_;
     rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr current_joint_state_right_sub_;
     rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr current_joint_state_left_sub_;
+    rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr vision_image_sub_;
+    rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr vision_sensor_image_sub_;
     rclcpp::Subscription<geometry_msgs::msg::Pose>::SharedPtr cube_pose_sub_;
     rclcpp::Subscription<geometry_msgs::msg::Pose>::SharedPtr sensor_pose_sub_;
     rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr sequence_to_do_sub_;
@@ -1672,6 +1862,7 @@ private:
     rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr joint7_delta_left_pub_;
     rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr gripper_cmd_right_pub_;
     rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr gripper_cmd_left_pub_;
+    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr rubik_key_pub_;
     rclcpp::TimerBase::SharedPtr timer_;
 
     // FSM state and return targets used by the shared trajectory and handoff states.
@@ -1691,6 +1882,7 @@ private:
     geometry_msgs::msg::Pose scan_start_pose_;
     geometry_msgs::msg::Pose cube_pose_;
     geometry_msgs::msg::Pose sensor_pose_;
+    sensor_msgs::msg::Image latest_vision_image_;
     std::vector<double> current_joints_right_;
     std::vector<double> current_joints_left_;
     std::vector<double> scan_start_joints_;
@@ -1709,6 +1901,7 @@ private:
     bool has_received_cube_ = false;
     bool has_received_cube_pcl_ = false;
     bool has_received_sensor_ = false;
+    bool has_received_vision_image_ = false;
     bool manual_scan_active_ = false;
     bool keyboard_raw_enabled_ = false;
 
@@ -1728,7 +1921,11 @@ private:
     double settle_timeout_sec_ = 2.0;
     int selected_profile_ = 3;
     int current_primitive_ = 0;
+    int scan_photo_counter_ = 0;
     int selected_manual_joint_ = 6;
+    uint64_t vision_image_counter_ = 0;
+    uint64_t pending_scan_photo_image_counter_ = 0;
+    std::string pending_scan_photo_label_;
     double manual_joint_step_ = 0.05;
     double manual_joint_direction_ = 1.0;
     double last_manual_joint_print_sec_ = 0.0;

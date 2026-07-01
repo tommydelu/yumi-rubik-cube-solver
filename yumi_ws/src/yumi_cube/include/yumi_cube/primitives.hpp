@@ -1,6 +1,7 @@
 #pragma once
 
 #include <functional>
+#include <string>
 #include <vector>
 
 #include "geometry_msgs/msg/point.hpp"
@@ -60,6 +61,7 @@ struct PrimitiveContext {
     std::function<std::vector<geometry_msgs::msg::Point>(
         const std::vector<geometry_msgs::msg::Point> &)> build_path;
     std::function<void()> restore_active_pose;
+    std::function<void(const std::string &)> send_rubik_key;
 };
 
 PrimitiveStatus execute_primitive(
