@@ -16,7 +16,7 @@ import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Pose
 from sensor_msgs.msg import Image, CameraInfo
-from std_msgs.msg import Float32
+from std_msgs.msg import Float32, Bool
 import numpy as np
 import open3d as o3d
 from scipy.spatial.transform import Rotation as R
@@ -42,6 +42,7 @@ class CubePerceptionNode(Node):
         self.cy = None
         self.far_clip = None
         self.detection_done = False
+        self.ready_to_process = False
 
         self.pub_cube_pcl = self.create_publisher(Pose, '/get_cube_pose', 10)
 
@@ -49,8 +50,19 @@ class CubePerceptionNode(Node):
         self.create_subscription(Pose, '/sensor2_pose', self.sensor_pose_cb, 10)
         self.create_subscription(CameraInfo, '/yumi/vision_cube/camera_info', self.camera_info_cb, 10)
         self.create_subscription(Float32, '/yumi/vision_cube/far_clip', self.far_clip_cb, 10)
+        self.create_subscription(Bool, '/locate_cube/ready', self.locate_ready_cb, 10)
 
         self.get_logger().info("In attesa di depth, posa, camera_info e far_clip sui topic...")
+
+    def locate_ready_cb(self, msg: Bool):
+        self.ready_to_process = msg.data
+        if msg.data:
+            self.detection_done = False
+            self.get_logger().info("Richiesta ricevuta su /locate_cube/ready: calcolo posa cubo abilitato.")
+            self.try_process()
+        else:
+            self.get_logger().info("Richiesta su /locate_cube/ready disattivata.")
+
 
     def camera_info_cb(self, msg: CameraInfo):
         # K = [fx, 0, cx, 0, fy, cy, 0, 0, 1]
@@ -79,6 +91,8 @@ class CubePerceptionNode(Node):
         self.try_process()
 
     def try_process(self):
+        if not self.ready_to_process:
+            return
         if self.detection_done:
             return
         if (self.latest_depth is None or self.latest_sensor_pose is None
@@ -289,6 +303,7 @@ class CubePerceptionNode(Node):
 
         self.pub_cube_pcl.publish(msg)
         self.detection_done = True
+        self.ready_to_process = False
         self.get_logger().info(f"Posa cubo pubblicata su /get_cube_pose! X:{msg.position.x:.3f} Y:{msg.position.y:.3f} Z:{msg.position.z:.3f}")
 
 

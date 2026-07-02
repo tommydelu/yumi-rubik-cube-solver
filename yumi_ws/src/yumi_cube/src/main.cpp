@@ -110,6 +110,7 @@ public:
         gripper_cmd_right_pub_ = create_publisher<std_msgs::msg::Bool>("/yumi/right/gripper_cmd", 10);
         gripper_cmd_left_pub_ = create_publisher<std_msgs::msg::Bool>("/yumi/left/gripper_cmd", 10);
         rubik_key_pub_ = create_publisher<std_msgs::msg::String>("/cube_cmd", 10);
+        locate_cube_ready_pub_ = create_publisher<std_msgs::msg::Bool>("/locate_cube/ready", 10);
 
         gripper_wait_until_ = now();
         timer_ = create_wall_timer(20ms, std::bind(&CubeTrajectoryPublisher::fsm_loop, this));
@@ -134,6 +135,8 @@ private:
     {
         cube_pose_pcl_ = *msg;
         has_received_cube_pcl_ = true;
+        publish_locate_cube_ready(false);
+        get_cube_pose_request_sent_ = false;
     }
 
     void currentPoseLeftCallback(const geometry_msgs::msg::Pose::SharedPtr msg)
@@ -396,6 +399,10 @@ private:
 
         switch (get_cube_pose_phase_) {
             case 0: {
+                has_received_cube_pcl_ = false;
+                get_cube_pose_request_sent_ = false;
+                publish_locate_cube_ready(false);
+
                 get_cube_pose_start_joints_ = joint_state_for_arm(Arm::RIGHT);
                 get_cube_pose_left_start_joints_ = joint_state_for_arm(Arm::LEFT);
                 if (get_cube_pose_start_joints_.size() < 7 || get_cube_pose_left_start_joints_.size() < 7) {
@@ -442,12 +449,19 @@ private:
 
             case 2:
                 if (!has_received_cube_pcl_) {
+                    if (!get_cube_pose_request_sent_) {
+                        publish_locate_cube_ready(true);
+                        get_cube_pose_request_sent_ = true;
+                        RCLCPP_INFO(get_logger(), "Requested locate_cube_node to compute /get_cube_pose.");
+                    }
                     RCLCPP_INFO_THROTTLE(
                         get_logger(), *get_clock(), 1000,
                         "Waiting for /get_cube_pose before capturing cube pose.");
-                        ++get_cube_pose_phase_;
+                        // ++get_cube_pose_phase_;
                     return;
                 }else {
+                    publish_locate_cube_ready(false);
+                    get_cube_pose_request_sent_ = false;
                     // print values
                     RCLCPP_INFO(get_logger(), "Cube pose received: x=%.3f y=%.3f z=%.3f", cube_pose_pcl_.position.x, cube_pose_pcl_.position.y, cube_pose_pcl_.position.z);
                     RCLCPP_INFO(get_logger(), "Cube orientation received: x=%.3f y=%.3f z=%.3f w=%.3f", cube_pose_pcl_.orientation.x, cube_pose_pcl_.orientation.y, cube_pose_pcl_.orientation.z, cube_pose_pcl_.orientation.w);
@@ -1220,6 +1234,13 @@ private:
         gripper_wait_until_ = now() + rclcpp::Duration::from_seconds(1.0);
     }
 
+    void publish_locate_cube_ready(bool ready)
+    {
+        std_msgs::msg::Bool msg;
+        msg.data = ready;
+        locate_cube_ready_pub_->publish(msg);
+    }
+
     static double distance(
         const geometry_msgs::msg::Point & a,
         const geometry_msgs::msg::Point & b)
@@ -1863,6 +1884,7 @@ private:
     rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr gripper_cmd_right_pub_;
     rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr gripper_cmd_left_pub_;
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr rubik_key_pub_;
+    rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr locate_cube_ready_pub_;
     rclcpp::TimerBase::SharedPtr timer_;
 
     // FSM state and return targets used by the shared trajectory and handoff states.
@@ -1904,6 +1926,7 @@ private:
     bool has_received_vision_image_ = false;
     bool manual_scan_active_ = false;
     bool keyboard_raw_enabled_ = false;
+    bool get_cube_pose_request_sent_ = false;
 
     termios saved_terminal_state_{};
     int keyboard_fd_ = -1;
