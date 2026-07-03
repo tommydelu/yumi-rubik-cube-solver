@@ -16,6 +16,7 @@ ament_xmllint==0.20.5
 angles==1.16.1
 builtin_interfaces==2.4.4
 composition_interfaces==2.4.4
+coppeliasim-zmqremoteapi-client==1.0.0
 cv_bridge==4.1.0
 demo_nodes_py==0.37.8
 diagnostic_msgs==5.9.2
@@ -47,6 +48,7 @@ launch_yaml==3.9.7
 lifecycle_msgs==2.4.4
 logging_demo==0.37.8
 map_msgs==2.6.1
+matplotlib==3.8.0
 # Editable install with no version control (mcts_planner==0.0.0)
 -e /home/elix/Desktop/ai-and-robotics-lab/colcon_ws/build/mcts_planner
 message_filters==7.3.9
@@ -56,6 +58,8 @@ pcl_msgs==1.0.0
 pendulum_msgs==0.37.8
 python_qt_binding==2.5.4
 PyYAML==6.0.3
+open3d
+opencv-python
 qt_dotgraph==2.10.7
 qt_gui==2.10.7
 qt_gui_cpp==2.10.7
