@@ -1,5 +1,5 @@
 yumi_cube_node:
   ros__parameters:
-    duration_sec: 4.0
+    duration_sec: 6.0
     cube_size: 0.04
     selected_profile: 7 # Choose a value between 3, 5 and 7 for the time law degree.

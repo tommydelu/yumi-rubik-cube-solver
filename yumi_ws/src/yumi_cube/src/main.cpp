@@ -222,8 +222,7 @@ private:
                 break;
 
             case FSMState::CHECK_SCAN:
-                RCLCPP_INFO(get_logger(), "SCAN COMPLETED");
-                current_state_ = FSMState::WAIT_FOR_SEQUENCE;
+                check_scan();
                 break;
 
             case FSMState::WAIT_FOR_SEQUENCE:
@@ -261,6 +260,63 @@ private:
         current_primitive_ = sequence_queue_.front();
         sequence_queue_.pop();
         current_state_ = FSMState::PRIMITIVE;
+    }
+
+    void check_scan()
+    {
+        if (!has_joint_state_for_arm(Arm::RIGHT) || !has_joint_state_for_arm(Arm::LEFT)) {
+            RCLCPP_INFO_THROTTLE(
+                get_logger(), *get_clock(), 1000,
+                "Waiting for both arm joint states before normalizing joint 7 after scan.");
+            return;
+        }
+
+        switch (check_scan_phase_) {
+            case 0: {
+                auto target_joints = joint_state_for_arm(Arm::RIGHT);
+                if (target_joints.size() < 7) {
+                    RCLCPP_WARN(
+                        get_logger(),
+                        "Cannot normalize right joint 7 after scan: received %zu positions.",
+                        target_joints.size());
+                    return;
+                }
+
+                target_joints.resize(7);
+                target_joints[6] = 0.0;
+                RCLCPP_INFO(get_logger(), "Scan completed: setting right joint 7 to 0 before primitives.");
+                ++check_scan_phase_;
+                start_joint_path(target_joints, FSMState::CHECK_SCAN, 1, Arm::RIGHT);
+                break;
+            }
+
+            case 1: {
+                auto target_joints = joint_state_for_arm(Arm::LEFT);
+                if (target_joints.size() < 7) {
+                    RCLCPP_WARN(
+                        get_logger(),
+                        "Cannot normalize left joint 7 after scan: received %zu positions.",
+                        target_joints.size());
+                    return;
+                }
+
+                target_joints.resize(7);
+                target_joints[6] = 0.0;
+                RCLCPP_INFO(get_logger(), "Scan completed: setting left joint 7 to 0 before primitives.");
+                ++check_scan_phase_;
+                start_joint_path(target_joints, FSMState::CHECK_SCAN, 1, Arm::LEFT);
+                break;
+            }
+
+            default:
+                active_arm_ = Arm::RIGHT;
+                current_pose_ = pose_for_arm(active_arm_);
+                desired_pose_ = desired_pose_for_arm(active_arm_);
+                RCLCPP_INFO(get_logger(), "SCAN COMPLETED");
+                check_scan_phase_ = 0;
+                current_state_ = FSMState::WAIT_FOR_SEQUENCE;
+                break;
+        }
     }
 
     void execute_primitive()
@@ -1957,6 +2013,7 @@ private:
     int get_cube_pose_phase_ = 0;
     int pick_phase_ = 0;
     int scan_phase_ = 0;
+    int check_scan_phase_ = 0;
     int change_phase_ = 0;
 
     std::vector<geometry_msgs::msg::Point> active_path_;

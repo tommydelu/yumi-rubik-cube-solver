@@ -33,8 +33,8 @@ private:
 
         for (size_t i = 0; i < sequence.size(); ++i) {
             std::string token(1, static_cast<char>(std::tolower(sequence[i])));
-            if (i + 1 < sequence.size() && sequence[i + 1] == '\'') {
-                token += "'";
+            if (i + 1 < sequence.size() && (sequence[i + 1] == '\'' || sequence[i + 1] == '2')) {
+                token += sequence[i + 1];
                 ++i;
             }
 
@@ -63,20 +63,24 @@ private:
     }
 
     const std::unordered_map<std::string, int> primitive_map_ = {
-        {"a", 0},
-        {"a'", 1},
-        {"b", 2},
-        {"b'", 3},
-        {"c", 4},
-        {"c'", 5},
-        {"d", 6},
-        {"d'", 7},
-        {"e", 8},
-        {"e'", 9},
-        {"f", 10},
-        {"f'", 11},
-        {"g", 12},
-        {"g'", 13},
+        {"r", 0},
+        {"r'", 1},
+        {"l", 2},
+        {"l'", 3},
+        {"r2", 4},
+        {"l2", 5},
+        {"d'", 6},
+        {"d", 7},
+        {"u", 8},
+        {"u'", 9},
+        {"b'", 10},
+        {"f", 11},
+        {"b", 12},
+        {"f'", 13},
+        {"d2", 14},
+        {"u2", 15},
+        {"f2", 16},
+        {"b2", 17},
     };
 
     std::queue<int> pending_primitives_;
