@@ -13,11 +13,7 @@
 #include <string>
 #include <vector>
 
-#include <fcntl.h>
 #include <sys/stat.h>
-#include <sys/select.h>
-#include <termios.h>
-#include <unistd.h>
 
 #include "geometry_msgs/msg/pose.hpp"
 #include "sensor_msgs/msg/image.hpp"
@@ -118,11 +114,6 @@ public:
         RCLCPP_INFO(get_logger(), "Node started. Awaiting all initial topics...");
     }
 
-    ~CubeTrajectoryPublisher() override
-    {
-        restore_keyboard_mode();
-    }
-
 private:
     void currentPoseRightCallback(const geometry_msgs::msg::Pose::SharedPtr msg)
     {
@@ -191,6 +182,14 @@ private:
 
         current_pose_ = pose;
         has_received_pose_ = true;
+    }
+
+    // Make `arm` the cube-carrying arm and resync the shared pose mirrors to it.
+    void set_active_arm(Arm arm)
+    {
+        active_arm_ = arm;
+        current_pose_ = pose_for_arm(arm);
+        desired_pose_ = desired_pose_for_arm(arm);
     }
 
     // Timer callback: dispatch the current finite-state-machine state.
@@ -272,46 +271,29 @@ private:
         }
 
         switch (check_scan_phase_) {
-            case 0: {
-                auto target_joints = joint_state_for_arm(Arm::RIGHT);
-                if (target_joints.size() < 7) {
-                    RCLCPP_WARN(
-                        get_logger(),
-                        "Cannot normalize right joint 7 after scan: received %zu positions.",
-                        target_joints.size());
-                    return;
-                }
-
-                target_joints.resize(7);
-                target_joints[6] = 0.0;
-                RCLCPP_INFO(get_logger(), "Scan completed: setting right joint 7 to 0 before primitives.");
-                ++check_scan_phase_;
-                start_joint_path(target_joints, FSMState::CHECK_SCAN, 1, Arm::RIGHT);
-                break;
-            }
-
+            case 0:
             case 1: {
-                auto target_joints = joint_state_for_arm(Arm::LEFT);
+                const Arm arm = check_scan_phase_ == 0 ? Arm::RIGHT : Arm::LEFT;
+                auto target_joints = joint_state_for_arm(arm);
                 if (target_joints.size() < 7) {
                     RCLCPP_WARN(
                         get_logger(),
-                        "Cannot normalize left joint 7 after scan: received %zu positions.",
+                        "Cannot normalize %s joint 7 after scan: received %zu positions.",
+                        arm_name(arm),
                         target_joints.size());
                     return;
                 }
 
                 target_joints.resize(7);
                 target_joints[6] = 0.0;
-                RCLCPP_INFO(get_logger(), "Scan completed: setting left joint 7 to 0 before primitives.");
+                RCLCPP_INFO(get_logger(), "Scan completed: setting %s joint 7 to 0 before primitives.", arm_name(arm));
                 ++check_scan_phase_;
-                start_joint_path(target_joints, FSMState::CHECK_SCAN, 1, Arm::LEFT);
+                start_joint_path(target_joints, FSMState::CHECK_SCAN, 1, arm);
                 break;
             }
 
             default:
-                active_arm_ = Arm::RIGHT;
-                current_pose_ = pose_for_arm(active_arm_);
-                desired_pose_ = desired_pose_for_arm(active_arm_);
+                set_active_arm(Arm::RIGHT);
                 RCLCPP_INFO(get_logger(), "SCAN COMPLETED");
                 check_scan_phase_ = 0;
                 current_state_ = FSMState::WAIT_FOR_SEQUENCE;
@@ -410,8 +392,7 @@ private:
             return build_path(corners);
         };
         context.restore_active_pose = [this]() {
-            current_pose_ = pose_for_arm(active_arm_);
-            desired_pose_ = desired_pose_for_arm(active_arm_);
+            set_active_arm(active_arm_);
         };
         context.send_rubik_key = [this](const std::string & keys) {
             send_rubik_key(keys);
@@ -459,25 +440,23 @@ private:
                 get_cube_pose_request_sent_ = false;
                 publish_locate_cube_ready(false);
 
-                get_cube_pose_start_joints_ = joint_state_for_arm(Arm::RIGHT);
+                get_cube_pose_right_start_joints_ = joint_state_for_arm(Arm::RIGHT);
                 get_cube_pose_left_start_joints_ = joint_state_for_arm(Arm::LEFT);
-                if (get_cube_pose_start_joints_.size() < 7 || get_cube_pose_left_start_joints_.size() < 7) {
+                if (get_cube_pose_right_start_joints_.size() < 7 || get_cube_pose_left_start_joints_.size() < 7) {
                     RCLCPP_WARN(
                         get_logger(),
                         "Get cube pose received incomplete joint state: right=%zu left=%zu positions.",
-                        get_cube_pose_start_joints_.size(),
+                        get_cube_pose_right_start_joints_.size(),
                         get_cube_pose_left_start_joints_.size());
                     return;
                 }
 
-                get_cube_pose_start_joints_.resize(7);
+                get_cube_pose_right_start_joints_.resize(7);
                 get_cube_pose_left_start_joints_.resize(7);
-                auto target_joints = get_cube_pose_start_joints_;
+                auto target_joints = get_cube_pose_right_start_joints_;
                 target_joints[0] -= M_PI_2;
 
-                active_arm_ = Arm::RIGHT;
-                current_pose_ = pose_for_arm(active_arm_);
-                desired_pose_ = desired_pose_for_arm(active_arm_);
+                set_active_arm(Arm::RIGHT);
                 RCLCPP_INFO(get_logger(), "Getting cube pose: rotating right joint 1 by -pi/2");
                 ++get_cube_pose_phase_;
                 start_joint_path(target_joints, FSMState::GET_CUBE_POSE, 1, Arm::RIGHT);
@@ -494,16 +473,14 @@ private:
                 auto target_joints = get_cube_pose_left_start_joints_;
                 target_joints[0] += M_PI_2;
 
-                active_arm_ = Arm::LEFT;
-                current_pose_ = pose_for_arm(active_arm_);
-                desired_pose_ = desired_pose_for_arm(active_arm_);
+                set_active_arm(Arm::LEFT);
                 RCLCPP_INFO(get_logger(), "Getting cube pose: rotating left joint 1 by +pi/2");
                 ++get_cube_pose_phase_;
                 start_joint_path(target_joints, FSMState::GET_CUBE_POSE, 1, Arm::LEFT);
                 break;
             }
 
-            case 2:
+            case 2: {
                 if (!has_received_cube_pcl_) {
                     if (!get_cube_pose_request_sent_) {
                         publish_locate_cube_ready(true);
@@ -513,57 +490,54 @@ private:
                     RCLCPP_INFO_THROTTLE(
                         get_logger(), *get_clock(), 1000,
                         "Waiting for /get_cube_pose before capturing cube pose.");
-                        // ++get_cube_pose_phase_;
                     return;
-                }else {
-                    publish_locate_cube_ready(false);
-                    get_cube_pose_request_sent_ = false;
-                    // print values
-                    RCLCPP_INFO(get_logger(), "Cube pose received: x=%.3f y=%.3f z=%.3f", cube_pose_pcl_.position.x, cube_pose_pcl_.position.y, cube_pose_pcl_.position.z);
-                    RCLCPP_INFO(get_logger(), "Cube orientation received: x=%.3f y=%.3f z=%.3f w=%.3f", cube_pose_pcl_.orientation.x, cube_pose_pcl_.orientation.y, cube_pose_pcl_.orientation.z, cube_pose_pcl_.orientation.w);
-                    // compute the error between the cube pose and the cube pose pcl
-                    double error_x = cube_pose_pcl_.position.x - cube_pose_.position.x;
-                    double error_y = cube_pose_pcl_.position.y - cube_pose_.position.y;
-                    double error_z = cube_pose_pcl_.position.z - cube_pose_.position.z;
-                    RCLCPP_INFO(get_logger(), "Cube pose error: x=%.3f y=%.3f z=%.3f", error_x, error_y, error_z);
-                    ++get_cube_pose_phase_;
                 }
+
+                publish_locate_cube_ready(false);
+                get_cube_pose_request_sent_ = false;
+                RCLCPP_INFO(
+                    get_logger(), "Cube pose received: x=%.3f y=%.3f z=%.3f",
+                    cube_pose_pcl_.position.x, cube_pose_pcl_.position.y, cube_pose_pcl_.position.z);
+                RCLCPP_INFO(
+                    get_logger(), "Cube orientation received: x=%.3f y=%.3f z=%.3f w=%.3f",
+                    cube_pose_pcl_.orientation.x, cube_pose_pcl_.orientation.y,
+                    cube_pose_pcl_.orientation.z, cube_pose_pcl_.orientation.w);
+                RCLCPP_INFO(
+                    get_logger(), "Cube pose error: x=%.3f y=%.3f z=%.3f",
+                    cube_pose_pcl_.position.x - cube_pose_.position.x,
+                    cube_pose_pcl_.position.y - cube_pose_.position.y,
+                    cube_pose_pcl_.position.z - cube_pose_.position.z);
+                ++get_cube_pose_phase_;
                 break;
+            }
 
             case 3:
-                if (get_cube_pose_start_joints_.size() < 7) {
-                    RCLCPP_WARN(get_logger(), "Get cube pose cannot restore right arm: missing initial right joint snapshot.");
+            case 4: {
+                const Arm arm = get_cube_pose_phase_ == 3 ? Arm::RIGHT : Arm::LEFT;
+                const auto & start_joints = arm == Arm::RIGHT
+                    ? get_cube_pose_right_start_joints_
+                    : get_cube_pose_left_start_joints_;
+                if (start_joints.size() < 7) {
+                    RCLCPP_WARN(
+                        get_logger(),
+                        "Get cube pose cannot restore %s arm: missing initial joint snapshot.",
+                        arm_name(arm));
                     get_cube_pose_phase_ = 0;
                     return;
                 }
 
-                active_arm_ = Arm::RIGHT;
-                current_pose_ = pose_for_arm(active_arm_);
-                desired_pose_ = desired_pose_for_arm(active_arm_);
-                RCLCPP_INFO(get_logger(), "Getting cube pose: returning right arm to initial joint configuration");
+                set_active_arm(arm);
+                RCLCPP_INFO(
+                    get_logger(),
+                    "Getting cube pose: returning %s arm to initial joint configuration",
+                    arm_name(arm));
                 ++get_cube_pose_phase_;
-                start_joint_path(get_cube_pose_start_joints_, FSMState::GET_CUBE_POSE, 1, Arm::RIGHT);
+                start_joint_path(start_joints, FSMState::GET_CUBE_POSE, 1, arm);
                 break;
-
-            case 4:
-                if (get_cube_pose_left_start_joints_.size() < 7) {
-                    RCLCPP_WARN(get_logger(), "Get cube pose cannot restore left arm: missing initial left joint snapshot.");
-                    get_cube_pose_phase_ = 0;
-                    return;
-                }
-
-                active_arm_ = Arm::LEFT;
-                current_pose_ = pose_for_arm(active_arm_);
-                desired_pose_ = desired_pose_for_arm(active_arm_);
-                RCLCPP_INFO(get_logger(), "Getting cube pose: returning left arm to initial joint configuration");
-                ++get_cube_pose_phase_;
-                start_joint_path(get_cube_pose_left_start_joints_, FSMState::GET_CUBE_POSE, 1, Arm::LEFT);
-                break;
+            }
 
             default:
-                active_arm_ = Arm::RIGHT;
-                current_pose_ = pose_for_arm(active_arm_);
-                desired_pose_ = desired_pose_for_arm(active_arm_);
+                set_active_arm(Arm::RIGHT);
                 RCLCPP_INFO(get_logger(), "GETTING CUBE POSE completed");
                 get_cube_pose_phase_ = 0;
                 current_state_ = FSMState::PICK_CUBE;
@@ -895,175 +869,6 @@ private:
         return true;
     }
 
-    void manual_joint_scan_control()
-    {
-        if (!has_joint_state_for_arm(active_arm_)) {
-            RCLCPP_INFO_THROTTLE(
-                get_logger(), *get_clock(), 1000,
-                "Manual scan waiting for %s arm joint state.",
-                arm_name(active_arm_));
-            return;
-        }
-
-        if (!manual_scan_active_) {
-            manual_scan_active_ = true;
-            selected_manual_joint_ = 6;
-            enable_keyboard_mode();
-            RCLCPP_INFO(
-                get_logger(),
-                "Manual joint scan active. Press 1-7 to jog that joint by %.3f rad, 'd' or '-' to reverse direction, 'e' to continue.",
-                manual_joint_step_);
-        }
-
-        print_manual_joint_state();
-
-        char key = 0;
-        if (!read_keyboard_key(key)) {
-            return;
-        }
-
-        if (key == 'e' || key == 'E') {
-            manual_scan_active_ = false;
-            restore_keyboard_mode();
-            ++scan_phase_;
-            RCLCPP_INFO(get_logger(), "Manual joint scan completed from keyboard.");
-            return;
-        }
-
-        if (key == 'd' || key == 'D' || key == '-') {
-            manual_joint_direction_ *= -1.0;
-            RCLCPP_INFO(get_logger(), "Manual joint jog direction is now %+0.0f.", manual_joint_direction_);
-            return;
-        }
-
-        if (key < '1' || key > '7') {
-            RCLCPP_INFO(get_logger(), "Manual joint scan ignored key '%c'. Use 1-7, 'd', '-', or 'e'.", key);
-            return;
-        }
-
-        const int joint_index = key - '1';
-        selected_manual_joint_ = joint_index;
-        auto target_joints = joint_state_for_arm(active_arm_);
-        if (target_joints.size() < 7) {
-            RCLCPP_WARN(
-                get_logger(),
-                "Manual joint scan received incomplete %s arm joint state: %zu positions.",
-                arm_name(active_arm_),
-                target_joints.size());
-            return;
-        }
-
-        target_joints.resize(7);
-        target_joints[joint_index] += manual_joint_direction_ * manual_joint_step_;
-        RCLCPP_INFO(
-            get_logger(),
-            "Manual joint scan: jogging %s joint %d to %.4f rad.",
-            arm_name(active_arm_),
-            joint_index + 1,
-            target_joints[joint_index]);
-        start_joint_path(target_joints, FSMState::CUBE_SCANNING, 1, active_arm_);
-    }
-
-    void print_manual_joint_state()
-    {
-        const double now_sec = now().seconds();
-        if (now_sec - last_manual_joint_print_sec_ < 1.0) {
-            return;
-        }
-        last_manual_joint_print_sec_ = now_sec;
-
-        const auto & joints = joint_state_for_arm(active_arm_);
-        if (joints.size() < 7) {
-            return;
-        }
-
-        RCLCPP_INFO(
-            get_logger(),
-            "%s joints: [1]=%.3f [2]=%.3f [3]=%.3f [4]=%.3f [5]=%.3f [6]=%.3f [7]=%.3f | direction=%+.0f | d=reverse | e=continue",
-            arm_name(active_arm_),
-            joints[0], joints[1], joints[2], joints[3], joints[4], joints[5], joints[6],
-            manual_joint_direction_);
-    }
-
-    void enable_keyboard_mode()
-    {
-        if (keyboard_raw_enabled_) {
-            return;
-        }
-
-        if (keyboard_fd_ < 0) {
-            keyboard_fd_ = open("/dev/tty", O_RDONLY | O_NONBLOCK);
-            if (keyboard_fd_ < 0) {
-                RCLCPP_WARN(
-                    get_logger(),
-                    "Manual joint scan could not open /dev/tty. Run yumi_cube_node from an interactive terminal, then press keys in that terminal.");
-                return;
-            }
-        }
-
-        if (tcgetattr(keyboard_fd_, &saved_terminal_state_) != 0) {
-            RCLCPP_WARN(get_logger(), "Manual joint scan could not read terminal settings; press keys followed by Enter if needed.");
-            close(keyboard_fd_);
-            keyboard_fd_ = -1;
-            return;
-        }
-
-        termios raw = saved_terminal_state_;
-        raw.c_lflag &= static_cast<unsigned int>(~(ICANON | ECHO));
-        raw.c_cc[VMIN] = 0;
-        raw.c_cc[VTIME] = 0;
-        if (tcsetattr(keyboard_fd_, TCSANOW, &raw) == 0) {
-            keyboard_raw_enabled_ = true;
-            RCLCPP_INFO(get_logger(), "Manual joint scan keyboard input is active on /dev/tty.");
-        }
-    }
-
-    void restore_keyboard_mode()
-    {
-        if (keyboard_raw_enabled_) {
-            tcsetattr(keyboard_fd_, TCSANOW, &saved_terminal_state_);
-            keyboard_raw_enabled_ = false;
-        }
-
-        if (keyboard_fd_ >= 0) {
-            close(keyboard_fd_);
-            keyboard_fd_ = -1;
-        }
-    }
-
-    bool read_keyboard_key(char & key) const
-    {
-        if (keyboard_fd_ < 0) {
-            return false;
-        }
-
-        fd_set fds;
-        FD_ZERO(&fds);
-        FD_SET(keyboard_fd_, &fds);
-
-        timeval timeout;
-        timeout.tv_sec = 0;
-        timeout.tv_usec = 0;
-
-        const int ready = select(keyboard_fd_ + 1, &fds, nullptr, nullptr, &timeout);
-        if (ready <= 0 || !FD_ISSET(keyboard_fd_, &fds)) {
-            return false;
-        }
-
-        return read(keyboard_fd_, &key, 1) == 1;
-    }
-
-    // Return to the pose saved at the start of the current scan segment before continuing.
-    void return_to_scan_start()
-    {
-        RCLCPP_INFO(get_logger(), "Scanning cube: returning to initial scanning pose");
-        ++scan_phase_;
-        start_path(
-            build_segment(current_pose_.position, scan_start_pose_.position),
-            scan_start_pose_.orientation,
-            FSMState::CUBE_SCANNING);
-    }
-
     // CHANGE_ARM is reusable: callers decide which FSM state should resume after handoff.
     void start_change_arm(FSMState return_state)
     {
@@ -1135,10 +940,7 @@ private:
                 break;
 
             default:
-                active_arm_ = target_arm;
-                current_pose_ = pose_for_arm(active_arm_);
-                desired_pose_ = desired_pose_for_arm(active_arm_);
-                scan_start_pose_ = current_pose_;
+                set_active_arm(target_arm);
                 RCLCPP_INFO(get_logger(), "Cube handoff completed. Active arm is now %s", arm_name(active_arm_));
                 change_phase_ = 0;
                 current_state_ = change_return_state_;
@@ -1410,14 +1212,7 @@ private:
     std::vector<geometry_msgs::msg::Point> build_pick_path(
         const geometry_msgs::msg::Point & cube_position) const
     {
-        return build_handoff_pick_path(current_pose_.position, cube_position);
-    }
-
-    std::vector<geometry_msgs::msg::Point> build_handoff_pick_path(
-        const geometry_msgs::msg::Point & from,
-        const geometry_msgs::msg::Point & cube_position) const
-    {
-        return build_path({from, above(cube_position), cube_position});
+        return build_path({current_pose_.position, above(cube_position), cube_position});
     }
 
     // Receiver approaches the cube from its own side, then closes at the handoff point.
@@ -1737,6 +1532,15 @@ private:
         return q;
     }
 
+    // Falls back to the 5th-degree profile when the configured one is unsupported.
+    void validate_time_law_profile()
+    {
+        if (selected_profile_ != 3 && selected_profile_ != 5 && selected_profile_ != 7) {
+            RCLCPP_ERROR(get_logger(), "Invalid time law profile %d, using 5th degree", selected_profile_);
+            selected_profile_ = 5;
+        }
+    }
+
     // Publishes one time-scaled pose sample per timer tick until the active path is complete.
     void execute_smooth_trajectory(const std::vector<geometry_msgs::msg::Point> & path)
     {
@@ -1745,10 +1549,7 @@ private:
             return;
         }
 
-        if (selected_profile_ != 3 && selected_profile_ != 5 && selected_profile_ != 7) {
-            RCLCPP_ERROR(get_logger(), "Invalid time law profile %d, using 5th degree", selected_profile_);
-            selected_profile_ = 5;
-        }
+        validate_time_law_profile();
 
         const double t = (now() - start_time_).seconds();
         const double tau = std::min(t / active_duration_, 1.0);
@@ -1807,10 +1608,7 @@ private:
             return;
         }
 
-        if (selected_profile_ != 3 && selected_profile_ != 5 && selected_profile_ != 7) {
-            RCLCPP_ERROR(get_logger(), "Invalid time law profile %d, using 5th degree", selected_profile_);
-            selected_profile_ = 5;
-        }
+        validate_time_law_profile();
 
         const double t = (now() - start_time_).seconds();
         const double tau = std::min(t / active_duration_, 1.0);
@@ -1957,14 +1755,13 @@ private:
     geometry_msgs::msg::Pose current_pose_left_;
     geometry_msgs::msg::Pose desired_pose_right_;
     geometry_msgs::msg::Pose desired_pose_left_;
-    geometry_msgs::msg::Pose scan_start_pose_;
     geometry_msgs::msg::Pose cube_pose_;
     geometry_msgs::msg::Pose sensor_pose_;
     sensor_msgs::msg::Image latest_vision_image_;
     std::vector<double> current_joints_right_;
     std::vector<double> current_joints_left_;
     std::vector<double> scan_start_joints_;
-    std::vector<double> get_cube_pose_start_joints_;
+    std::vector<double> get_cube_pose_right_start_joints_;
     std::vector<double> get_cube_pose_left_start_joints_;
 
     // Topic readiness flags prevent the FSM from planning before all needed scene data exists.
@@ -1980,12 +1777,8 @@ private:
     bool has_received_cube_pcl_ = false;
     bool has_received_sensor_ = false;
     bool has_received_vision_image_ = false;
-    bool manual_scan_active_ = false;
-    bool keyboard_raw_enabled_ = false;
     bool get_cube_pose_request_sent_ = false;
 
-    termios saved_terminal_state_{};
-    int keyboard_fd_ = -1;
     rclcpp::Time start_time_;
     rclcpp::Time gripper_wait_until_;
     rclcpp::Time joint_pose_refresh_until_;
@@ -2001,13 +1794,9 @@ private:
     int selected_profile_ = 3;
     int current_primitive_ = 0;
     int scan_photo_counter_ = 0;
-    int selected_manual_joint_ = 6;
     uint64_t vision_image_counter_ = 0;
     uint64_t pending_scan_photo_image_counter_ = 0;
     std::string pending_scan_photo_label_;
-    double manual_joint_step_ = 0.05;
-    double manual_joint_direction_ = 1.0;
-    double last_manual_joint_print_sec_ = 0.0;
     std::queue<int> sequence_queue_;
     // Phase counters make long actions resumable across timer callbacks.
     int get_cube_pose_phase_ = 0;
