@@ -132,16 +132,16 @@ Each face of the cube is scanned sequentially using a dual-gripper handoff syste
 | Step | Face | Motion |
 |------|------|--------|
 | 1 | **Front** | Camera captures the face as presented, no rotation needed |
-| 2 | **Left** | Right gripper rotates **90° clockwise** |
-| 3 | **Back** | Gripper returns to start, then rotates **180°** |
+| 2 | **Back** | Gripper returns to start, then rotates **180°** |
+| 3 | **Left** | Right gripper rotates **90° clockwise** |
 
 ### Left Hand Sequence
 
 | Step | Face | Motion |
 |------|------|--------|
 | 4 | **Up** | Left hand takes over, rotates cube **90° forward** |
-| 5 | **Right** | Rotates **90° counter-clockwise** |
-| 6 | **Down** | Cube is flipped **180°** from the Top position |
+| 5 | **Down** | Cube is flipped **180°** from the Top position |
+| 6 | **Right** | Rotates **90° counter-clockwise** |
 
 ### Unwrapped Cube Layout
 
